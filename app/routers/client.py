@@ -4,9 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
-from app.models.cliente import Cliente
+from app.models.client import Client
 from app.repositories.client_repository import ClientRepository
-from app.schemas.cliente import ClienteCreate, ClienteUpdate, ClienteResponse
+from app.schemas.client import ClientCreate, ClientUpdate, ClientResponse
 
 router = APIRouter(prefix="/clients", tags=["clients"])
 
@@ -19,20 +19,20 @@ def get_db():
         db.close()
 
 
-@router.post("/", response_model=ClienteResponse, status_code=201)
-def create_client(payload: ClienteCreate, db: Session = Depends(get_db)):
+@router.post("/", response_model=ClientResponse, status_code=201)
+def create_client(payload: ClientCreate, db: Session = Depends(get_db)):
     repository = ClientRepository(db)
-    client = Cliente(**payload.model_dump())
+    client = Client(**payload.model_dump())
     return repository.create(client)
 
 
-@router.get("/", response_model=list[ClienteResponse])
+@router.get("/", response_model=list[ClientResponse])
 def list_clients(db: Session = Depends(get_db)):
     repository = ClientRepository(db)
     return repository.list_all()
 
 
-@router.get("/{client_id}", response_model=ClienteResponse)
+@router.get("/{client_id}", response_model=ClientResponse)
 def get_client(client_id: uuid.UUID, db: Session = Depends(get_db)):
     repository = ClientRepository(db)
     client = repository.get_by_id(client_id)
@@ -41,8 +41,8 @@ def get_client(client_id: uuid.UUID, db: Session = Depends(get_db)):
     return client
 
 
-@router.patch("/{client_id}", response_model=ClienteResponse)
-def update_client(client_id: uuid.UUID, payload: ClienteUpdate, db: Session = Depends(get_db)):
+@router.patch("/{client_id}", response_model=ClientResponse)
+def update_client(client_id: uuid.UUID, payload: ClientUpdate, db: Session = Depends(get_db)):
     repository = ClientRepository(db)
     client = repository.get_by_id(client_id)
     if not client:
