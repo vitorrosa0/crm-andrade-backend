@@ -13,7 +13,7 @@ sys.path.append(os.getcwd())
 load_dotenv()
 
 from app.database import Base
-from app.models.cliente import Cliente  # noqa: F401 -- import necessário pro Alembic enxergar o modelo
+from app.models.client import Client  # noqa: F401 -- import necessário pro Alembic enxergar o modelo
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
