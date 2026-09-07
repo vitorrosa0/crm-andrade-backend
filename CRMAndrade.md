@@ -238,6 +238,58 @@ São 13 ADRs cobrindo tudo que foi decidido até aqui, das escolhas de stack
 até a rejeição da IA generativa livre e das bibliotecas não-oficiais de
 WhatsApp.
 
+### 7.11 Módulo de cobrança — entidade e gateway (2026-09-05)
+Primeira parte do módulo de cobrança: a entidade `Charge` e o contrato do
+gateway. A integração real com o Inter fica pendente das credenciais, mas
+nada mais depende delas.
+
+**`app/gateways/billing.py`** — a *porta*. Interface abstrata `BillingGateway`
+com `issue`, `get_status` e `cancel`, mais os dataclasses `ChargeRequest`,
+`Payer` e `IssuedCharge`, e as exceções `BillingGatewayError` /
+`ChargeNotFoundError`.
+
+Decisão importante: **o gateway fala em dataclasses, não no model do ORM**.
+Se `issue()` recebesse a entidade `Charge` do SQLAlchemy, o adaptador do
+Inter ficaria acoplado à nossa persistência. A porta precisa ser
+independente das duas pontas que separa.
+
+**`app/gateways/fake_billing.py`** — o adaptador falso, em memória. Reproduz
+de propósito recusas do mundo real (cobrança paga não pode ser cancelada,
+id inexistente levanta erro) e expõe `fail_next_calls` para exercitar o
+caminho de falha sem depender de a rede cair.
+
+**`app/models/charge.py` + migration `33f1693378a4`** — tabela `charges`.
+O ponto de modelagem que mais rendeu: **`status` guarda só o ciclo de vida
+do pagamento** (`PENDING`/`PAID`/`OVERDUE`/`CANCELLED`). Emissão e
+notificação viraram colunas próprias (`issued_at`, `notified_at`), porque
+uma cobrança emitida, enviada **e** paga é o caso normal — com uma coluna
+só, gravar `PAID` apagaria a informação de que foi enviada. Ver
+[ADR 0015](docs/decisoes/0015-status-de-cobranca-separado-de-fatos.md).
+
+**`app/domain.py`** — constantes do domínio em um lugar só, para que a lista
+de valores válidos não viva duplicada entre model, schema e comparações.
+
+**Dois problemas reais encontrados pelos testes:**
+
+1. **O SQLAlchemy sabotava o `ON DELETE RESTRICT`.** Ao apagar um cliente com
+   cobranças, o ORM "ajudava" emitindo `UPDATE charges SET client_id = NULL`
+   antes do DELETE — que batia no NOT NULL e produzia um `NotNullViolation`
+   confuso, em vez da recusa correta da FK. Resolvido com
+   `passive_deletes="all"` no relationship.
+2. **O handler de erros não mapeava RESTRICT.** O Postgres usa SQLSTATE
+   `23001` para violação de `ON DELETE RESTRICT`, distinto do `23503` de FK
+   comum. Adicionado ao mapa em `app/errors.py`.
+
+Com isso, apagar um cliente que tem cobranças devolve `409` com mensagem
+útil — o débito do "DELETE físico" virou um erro seguro, sem precisar de
+soft delete ainda.
+
+**Validado:** gateway (emissão, consulta, recusa de cancelar cobrança paga,
+id inexistente, falha simulada); schema (valor abaixo do mínimo de R$ 2,50,
+valor zero, vencimento no passado); repositório (busca por `external_id`
+para o webhook, consulta de vencimentos, listagem por cliente); e as cinco
+constraints do banco, cada uma bloqueando o que deveria.
+
 ---
 
 ## 8. Próximos Passos
@@ -251,10 +303,13 @@ WhatsApp.
 7. **Testes automatizados** (`pytest` + `TestClient` + banco de teste isolado) — hoje a verificação é script solto; virar suíte de verdade antes de o módulo de cobrança crescer
 8. ~~Normalizar CPF/CNPJ~~ — feito (`d24e8b91fa07`, ver 7.9)
 9. **Validação de dígito verificador** de CPF/CNPJ — o tamanho é conferido, o cálculo não
-10. Seguir para o módulo de **cobrança (Inter)**, contra a interface abstrata `BillingGateway` ([ADR 0012](docs/decisoes/0012-gateway-de-cobranca-abstrato.md)):
-   - Modelagem da entidade de cobrança, vinculada ao cliente
-   - Integração com a API do Banco Inter (autenticação via certificado)
-   - Emissão de boleto e persistência do status
+10. Módulo de **cobrança (Inter)**:
+   - ~~Modelagem da entidade de cobrança, vinculada ao cliente~~ — feito (ver 7.11)
+   - ~~Interface abstrata `BillingGateway` + implementação fake~~ — feito (ver 7.11)
+   - **Camada de serviço de emissão** — orquestrar "buscar cliente → chamar gateway → persistir" numa transação, e criar `app/services/`
+   - **Rotas REST de cobrança** (`/charges`)
+   - **Decidir a modelagem de recorrência** (tabela `subscriptions` vs. cobranças auto-replicantes)
+   - **Integração real com o Inter** (mTLS + OAuth2), quando houver credenciais
 10. Módulo de **agendamento/envio via WhatsApp**:
    - Configuração da conta oficial (Meta Business)
    - Aprovação de template de mensagem
@@ -274,13 +329,16 @@ WhatsApp.
 - ~~**Nomenclatura mista (PT/EN)**~~ — quitado na migration `b7c1d4e28f30` (ver 7.7).
 - ~~**Violação de constraint retorna 500**~~ — quitado (ver 7.8).
 - ~~**Sem unicidade em CPF e CNPJ**~~ — quitado (ver 7.8).
+- ~~**`DELETE` de cliente é físico e perigoso**~~ — mitigado (ver 7.11): a FK com `ON DELETE RESTRICT` impede apagar cliente com cobranças, devolvendo 409.
 - **Sem testes automatizados**: a validação do CRUD hoje é script avulso. Próximo passo natural: `pytest` + `TestClient` com banco de teste isolado.
 - ~~**CPF/CNPJ sem normalização**~~ — quitado (ver 7.9).
 - **Sem validação de dígito verificador** de CPF/CNPJ: o tamanho é conferido, mas não o cálculo do DV. `"11111111111"` é aceito.
 - **Sem autenticação**: todos os endpoints são públicos. Bloqueante para deploy — hoje qualquer um listaria todos os clientes do escritório, com CPF e telefone.
 - **Sem paginação** em `GET /clients/`: retorna a tabela inteira.
-- **`DELETE` é físico**: apagar um cliente com histórico de cobrança seria perda de dado contábil. Provável solução futura: soft delete.
 - **Sem linter/formatador** (`ruff`, `black`): o estilo depende de disciplina.
+- **`Charge` ainda não tem rotas nem camada de serviço**: a entidade e o gateway existem, mas nada os orquestra ainda.
+- **Recorrência não modelada**: o escritório cobra mensalmente e ainda não foi decidido como representar o contrato recorrente.
+- **`notified_at` registra um envio, não várias tentativas**: se for preciso auditar cada tentativa de envio, vira tabela própria.
 - **`venv` com pacotes alheios ao projeto** (`graphifyy`, `numpy`): não entraram no `requirements.txt`, mas vale limpar o ambiente em algum momento.
 - **WhatsApp**: envio proativo de boleto não é 100% gratuito (custo pequeno por mensagem de template) — importante alinhar essa expectativa com o escritório.
 - **Ambiente Windows**: diversos pontos de atenção específicos da máquina de desenvolvimento (Git Bash vs PowerShell, `psql` fora do PATH, necessidade de aspas em caminhos com espaço) — não afetam o código, mas vale documentar para onboarding de outro desenvolvedor no futuro.

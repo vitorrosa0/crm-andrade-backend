@@ -1,6 +1,6 @@
 # ADR 0012 — Gateway de cobrança abstrato
 
-**Status:** Proposto
+**Status:** Aceito
 **Data:** 2026-09-05
 
 ## Contexto
@@ -27,11 +27,21 @@ diretamente.
 ```python
 class BillingGateway(ABC):
     @abstractmethod
-    def issue_charge(self, charge: Charge) -> IssuedCharge: ...
+    def issue(self, request: ChargeRequest) -> IssuedCharge: ...
 
     @abstractmethod
-    def get_status(self, external_id: str) -> ChargeStatus: ...
+    def get_status(self, external_id: str) -> str: ...
+
+    @abstractmethod
+    def cancel(self, external_id: str) -> None: ...
 ```
+
+**O gateway fala em dataclasses, não no model do ORM.** `issue()` recebe um
+`ChargeRequest` (com `amount`, `due_date` e um `Payer`), e não a entidade
+`Charge` do SQLAlchemy. Se recebesse o model, o adaptador do Inter ficaria
+acoplado à nossa persistência — passaria a depender de *como guardamos* os
+dados, o que não é da conta dele. A porta precisa ser independente das duas
+pontas que ela separa.
 
 Duas implementações:
 
@@ -128,4 +138,13 @@ pé. Mock resolve sintoma; a interface resolve a causa.
 4. Implementar `FakeBillingGateway` e construir o módulo inteiro contra ele
 5. Implementar `InterBillingGateway` quando houver conta PJ
 
-Quando esta decisão for implementada, este ADR passa a `Aceito`.
+**Implementado em 2026-09-05:** `app/gateways/billing.py` (a porta) e
+`app/gateways/fake_billing.py` (o adaptador falso). O `InterBillingGateway`
+segue pendente das credenciais.
+
+O fake reproduz de propósito recusas do mundo real — cobrança paga não pode
+ser cancelada, id inexistente levanta `ChargeNotFoundError` — e expõe
+`fail_next_calls` para exercitar o caminho de erro sem depender de a rede
+cair. Ainda assim vale a ressalva registrada acima: **um fake que mente é
+pior que nenhum fake**, e nada substitui um teste de integração real antes
+de produção.

@@ -18,9 +18,10 @@ entra no code review junto com o código que depende dela.
 | `b7c1d4e28f30` | Renomeia tudo para inglês; `created_at` ganha `NOT NULL` + `server_default` |
 | `c93a5f17b204` | Unicidade de CPF e CNPJ |
 | `d24e8b91fa07` | Normaliza CPF e CNPJ para apenas dígitos |
+| `33f1693378a4` | Cria a tabela `charges` |
 
 ```
-ec6f5bd69c7c  →  b7c1d4e28f30  →  c93a5f17b204  →  d24e8b91fa07  (head)
+ec6f5bd69c7c  →  b7c1d4e28f30  →  c93a5f17b204  →  d24e8b91fa07  →  33f1693378a4  (head)
 ```
 
 ## Fluxo normal

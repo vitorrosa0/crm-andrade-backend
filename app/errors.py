@@ -32,6 +32,10 @@ UNIQUE_VIOLATION = "23505"
 CHECK_VIOLATION = "23514"
 NOT_NULL_VIOLATION = "23502"
 FOREIGN_KEY_VIOLATION = "23503"
+# O Postgres usa um código próprio para violação de ON DELETE RESTRICT,
+# distinto do de chave estrangeira comum. Apagar um cliente que tem
+# cobranças cai aqui.
+RESTRICT_VIOLATION = "23001"
 
 # Mensagens por nome de constraint. Manter o nome da constraint como chave
 # (e não o texto do erro do Postgres) é deliberado: o texto muda conforme o
@@ -49,6 +53,23 @@ CONSTRAINT_MESSAGES: dict[str, str] = {
         "Documento incompatível com o tipo de pessoa: informe CPF para "
         "'INDIVIDUAL' e CNPJ para 'COMPANY', nunca os dois."
     ),
+    "fk_charges_client_id": (
+        "Cliente inexistente, ou o cliente possui cobranças e não pode ser "
+        "removido."
+    ),
+    "uq_charges_external_id": (
+        "Já existe uma cobrança registrada com este identificador do banco."
+    ),
+    "check_charge_status_valid": "Status de cobrança inválido.",
+    "check_charge_amount_positive": "O valor da cobrança deve ser maior que zero.",
+    "check_charge_paid_at_matches_status": (
+        "Incoerência: cobrança paga precisa ter data de pagamento, e apenas "
+        "cobranças pagas podem tê-la."
+    ),
+    "check_charge_issued_consistency": (
+        "Incoerência: identificador do banco e data de emissão devem existir "
+        "juntos."
+    ),
 }
 
 # Cada classe de violação vira um status HTTP diferente, porque significam
@@ -60,6 +81,7 @@ STATUS_BY_SQLSTATE: dict[str, int] = {
     CHECK_VIOLATION: 422,
     NOT_NULL_VIOLATION: 422,
     FOREIGN_KEY_VIOLATION: 409,
+    RESTRICT_VIOLATION: 409,
 }
 
 DEFAULT_STATUS = 409

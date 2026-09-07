@@ -46,7 +46,7 @@ resolvia.
 | [0004](0004-repository-pattern.md) | Repository Pattern com sessão injetada | Aceito |
 | [0008](0008-validacao-em-duas-camadas.md) | Validar em duas camadas (Pydantic + banco) | Aceito |
 | [0009](0009-integridade-garantida-pelo-banco.md) | Integridade garantida pelo banco, traduzida para HTTP | Aceito |
-| [0012](0012-gateway-de-cobranca-abstrato.md) | Gateway de cobrança abstrato | Proposto |
+| [0012](0012-gateway-de-cobranca-abstrato.md) | Gateway de cobrança abstrato | Aceito |
 
 ### Modelagem de dados
 | # | Decisão | Status |
@@ -55,6 +55,7 @@ resolvia.
 | [0006](0006-sem-enum-para-person-type.md) | String + CHECK em vez de ENUM | Aceito |
 | [0013](0013-migrations-de-rename-a-mao.md) | Migrations de renomeação escritas à mão | Aceito |
 | [0014](0014-normalizacao-de-documentos.md) | Normalizar CPF e CNPJ na entrada | Aceito |
+| [0015](0015-status-de-cobranca-separado-de-fatos.md) | Status de cobrança separado dos fatos de emissão e envio | Aceito |
 
 ### Convenções
 | # | Decisão | Status |

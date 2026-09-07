@@ -122,21 +122,84 @@ escritório opera em horário de Brasília.
   formato E.164 (`5511999999999`). Ainda não é imposto.
 - **Sem `updated_at`.** Não há como saber quando um cliente foi alterado.
 
-## Modelagem planejada: `charges`
+## Tabela `charges`
 
-Esboço, ainda não implementado:
+Definida em [`app/models/charge.py`](../app/models/charge.py). Criada pela
+migration `33f1693378a4`.
 
-| Coluna | Observação |
-|---|---|
-| `id` | UUID |
-| `client_id` | FK para `clients` |
-| `amount` | `Numeric(10,2)` — **nunca `Float`**, dinheiro não admite erro de arredondamento binário |
-| `due_date` | Data de vencimento |
-| `status` | `PENDING` / `SENT` / `PAID` / `OVERDUE` / `CANCELLED` |
-| `external_id` | Identificador do boleto no Banco Inter |
-| `created_at` / `updated_at` | |
+| Coluna | Tipo | Nulo? | Descrição |
+|---|---|---|---|
+| `id` | `UUID` | não | Chave primária |
+| `client_id` | `UUID` | não | FK para `clients`, com `ON DELETE RESTRICT` |
+| `amount` | `Numeric(10,2)` | não | Valor. **Nunca `Float`** |
+| `due_date` | `Date` | não | Vencimento |
+| `description` | `String` | sim | Ex: "Honorários — setembro" |
+| `status` | `String` | não | Ciclo de vida do **pagamento**, só isso |
+| `external_id` | `String` | sim | Id do boleto no banco. Único. NULL = ainda não emitido |
+| `payment_url` | `String` | sim | Link do boleto |
+| `digitable_line` | `String` | sim | Linha digitável |
+| `pix_copy_paste` | `String` | sim | Pix copia-e-cola |
+| `issued_at` | `timestamptz` | sim | Quando o boleto foi emitido no banco |
+| `notified_at` | `timestamptz` | sim | Quando foi enviado ao cliente |
+| `paid_at` | `timestamptz` | sim | Quando o pagamento foi confirmado |
+| `created_at` / `updated_at` | `timestamptz` | não | `server_default = now()` |
 
-A questão em aberto é como representar **recorrência**: uma tabela
-`subscriptions` que gera `charges` mensalmente, ou cobranças que se
-auto-replicam. A primeira opção separa melhor "o contrato" de "a fatura",
-mas ainda não foi decidida.
+### Estados de `status`
+
+```
+PENDING ──→ PAID
+        ──→ OVERDUE
+        ──→ CANCELLED
+```
+
+`status` cobre **apenas o pagamento**. Emissão e notificação são fatos
+independentes, registrados em `issued_at` e `notified_at` — porque uma
+cobrança emitida, enviada **e** paga é o caso normal, e uma coluna só não
+comportaria os três. Ver [ADR 0015](decisoes/0015-status-de-cobranca-separado-de-fatos.md).
+
+### Constraints e índices
+
+| Nome | Tipo | Regra |
+|---|---|---|
+| `fk_charges_client_id` | FK | `ON DELETE RESTRICT` — impede apagar cliente com cobranças |
+| `uq_charges_external_id` | UNIQUE | Um boleto do banco não se repete |
+| `check_charge_status_valid` | CHECK | `status` entre os valores conhecidos |
+| `check_charge_amount_positive` | CHECK | `amount > 0` |
+| `check_charge_paid_at_matches_status` | CHECK | `PAID` ⟺ tem `paid_at` |
+| `check_charge_issued_consistency` | CHECK | `external_id` ⟺ `issued_at` |
+| `ix_charges_client_id` | Índice | O Postgres **não** indexa FK automaticamente |
+| `ix_charges_status_due_date` | Índice | Atende a consulta da rotina diária |
+
+### Decisões de modelagem
+
+**`Numeric(10,2)`, nunca `Float`.** `Float` é binário e não representa
+decimais exatamente — `0.1 + 0.2 != 0.3`. Em dinheiro esse erro acumula e
+vira divergência de centavos no fechamento do mês.
+
+**`ON DELETE RESTRICT` na FK.** Apagar um cliente com histórico financeiro
+seria perda de dado contábil. O banco recusa, e o handler de erros traduz
+a recusa em `409` com mensagem útil. Isso transformou o débito do "DELETE
+físico" em um erro seguro, sem precisar de soft delete ainda.
+
+> ⚠️ Isso exigiu `passive_deletes="all"` no relationship do lado do
+> `Client`. Sem isso, o SQLAlchemy tenta "ajudar" emitindo
+> `UPDATE charges SET client_id = NULL` antes do DELETE, e o erro que sobe
+> é um `NotNullViolation` confuso em vez da recusa correta da FK.
+
+**Valor mínimo mora no schema, não no banco.** A CHECK garante só
+`amount > 0`. O mínimo de R$ 2,50 é regra da **instituição financeira**, não
+do domínio — vive em `app/schemas/charge.py`. Trocar de banco muda esse
+número e não deve exigir migration.
+
+## Modelagem ainda em aberto: recorrência
+
+O escritório cobra **mensalmente**. Como representar isso ainda não foi
+decidido. As opções na mesa:
+
+- Uma tabela `subscriptions` (o contrato) que gera `charges` (as faturas)
+  mensalmente. Separa bem "o acordo" de "a cobrança do mês"
+- Cobranças que se auto-replicam ao serem pagas
+
+A primeira parece mais correta — permite mudar o valor do contrato sem
+reescrever o histórico, e responde "quanto este cliente paga por mês?" sem
+inferir das faturas. Mas não foi decidido.
